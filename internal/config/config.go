@@ -402,6 +402,36 @@ rules = [
   { state = "working", pattern = "esc interrupt" },
 ]
 
+[tools.opencode2]
+command = "opencode2"
+session_report = "opencode2"
+session_store = "opencode2"
+resume_by_id_command = "opencode2 --session {id}"
+fork_command = "opencode2 --session {id} --fork"
+resume_picker_command = "opencode2"
+resume_picker_keys = "/sessions"
+revive_command = "opencode2 --continue"
+catalog = "opencode2"
+catalog_command = "opencode2 models"
+model_args = "-m {model}"
+prompt_flag = "--prompt"
+default_status = "idle"
+activity_cutoff = "(?m)^\\s*┃"
+input_prefix = "(?m)^\\s*┃"
+turn_end = "^\\s*┃ +.+┃ [\\dhms. ]+\\s*$"
+chrome_line = "^\\s*(?:─+|[╭╮╰╯│].*)$"
+input_placeholder = "^Ask anything\\.\\.\\."
+user_echo = "^\\s*┃\\s{2,}"
+limit_line = "(?i)requires more credits|(?:Usage|Free|Go) limit reached"
+busy_footer = "(?m)^\\s*[╭╮╰╯│]+ "
+rules = [
+  { state = "errored", pattern = "(?i)requires more credits" },
+  { state = "errored", pattern = "(?im)^\\s*error\\b" },
+  { state = "waiting", pattern = "(?m)^[ \\t]*│[ \\t]+│[ \\t]*(?:Perm|Always|Reject)[^\\n]*(?:\\n[ \\t]*│[^\\n]*)*(?:\\n[ \\t]*)*\\z" },
+  { state = "waiting", pattern = "(?m)^[ \\t]*│[^\\n]*(?:esc)[^\\n]*\\besc\\b[^\\n]*(?:\\n[ \\t]*│[^\\n]*)*(?:\\n[ \\t]*)*\\z" },
+  { state = "working", pattern = "(?m)^\\s*┃ +[^┃\\n]+┃\\s*$" },
+]
+
 [tools.codex]
 command = "codex"
 # codex mints its own session id; capture it after launch and resume it

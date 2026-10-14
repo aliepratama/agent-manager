@@ -98,9 +98,10 @@ var readers = map[string]func(ctx context.Context, command, dir string) (Catalog
 	"acp":      readACP,
 	"pi":       readPi,
 	"omp":      readOmp,
-	"muse":     readMuse,
-	"opencode": readOpencode,
-	"hermes":   readHermes,
+	"muse":      readMuse,
+	"opencode":  readOpencode,
+	"opencode2": readOpencode2,
+	"hermes":    readHermes,
 }
 
 // Fetch starts command in dir and asks it over the interface named kind.

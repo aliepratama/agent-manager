@@ -76,6 +76,8 @@ func Capture(sessionStore, cwd string, launchedAt time.Time, claimed map[string]
 		return captureCodex(codexRoot(), cwd, launchedAt, claimed)
 	case "opencode":
 		return captureOpencode(cwd, launchedAt, claimed)
+	case "opencode2":
+		return captureOpencode2(cwd, launchedAt, claimed)
 	case "gemini":
 		return captureGemini(geminiRoot(), cwd, launchedAt, claimed)
 	case "hermes":
@@ -105,6 +107,8 @@ func Snapshot(sessionStore, cwd string) (map[string]int64, bool) {
 		return snapshotCodex(codexRoot(), cwd)
 	case "opencode":
 		return snapshotOpencode(cwd)
+	case "opencode2":
+		return snapshotOpencode2(cwd)
 	case "gemini":
 		return snapshotGemini(geminiRoot(), cwd)
 	case "hermes":
@@ -143,6 +147,8 @@ func Recapture(sessionStore, cwd string, snapshot map[string]int64, claimed map[
 		cands = recaptureCommandCode(commandCodeRoot(), cwd, snapshot, claimed)
 	case "opencode":
 		cands = recaptureOpencode(cwd, snapshot, claimed)
+	case "opencode2":
+		cands = recaptureOpencode2(cwd, snapshot, claimed)
 	case "hermes":
 		return recaptureHermes(hermesStateDB(), cwd, snapshot, claimed)
 	case "muse":
@@ -287,6 +293,42 @@ func snapshotOpencode(cwd string) (map[string]int64, bool) {
 // list, admitting the conversation whose update time outran the snapshot.
 func recaptureOpencode(cwd string, snapshot map[string]int64, claimed map[string]bool) []candidate {
 	entries, ok := opencodeSessionListJSON(cwd)
+	if !ok {
+		return nil
+	}
+	wantCwd := resolvePath(cwd)
+	var cands []candidate
+	for _, e := range entries {
+		if e.ID == "" || claimed[e.ID] || resolvePath(e.Directory) != wantCwd {
+			continue
+		}
+		updated := e.Updated * int64(time.Millisecond)
+		if !afterSnapshot(snapshot, e.ID, updated) {
+			continue
+		}
+		cands = append(cands, candidate{id: e.ID, modTime: time.Unix(0, updated)})
+	}
+	return cands
+}
+
+func snapshotOpencode2(cwd string) (map[string]int64, bool) {
+	entries, ok := opencode2SessionListJSON(cwd)
+	if !ok {
+		return nil, false
+	}
+	wantCwd := resolvePath(cwd)
+	snapshot := map[string]int64{}
+	for _, e := range entries {
+		if e.ID == "" || resolvePath(e.Directory) != wantCwd {
+			continue
+		}
+		snapshot[e.ID] = e.Updated * int64(time.Millisecond)
+	}
+	return snapshot, true
+}
+
+func recaptureOpencode2(cwd string, snapshot map[string]int64, claimed map[string]bool) []candidate {
+	entries, ok := opencode2SessionListJSON(cwd)
 	if !ok {
 		return nil
 	}
@@ -648,6 +690,86 @@ var opencodeSessionMeta = func(cwd, id string) (directory string, created, updat
 	return parseOpencodeExport(out)
 }
 
+func runOpencode2(cwd string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), opencodeCLITimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "opencode2", args...)
+	cmd.Dir = cwd
+	return cmd.Output()
+}
+
+func runOpencode2Head(cwd string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), opencodeCLITimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "opencode2", args...)
+	cmd.Dir = cwd
+	pipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	buf := make([]byte, opencodeExportHeadBytes)
+	n, _ := io.ReadFull(pipe, buf)
+	cancel()
+	_ = cmd.Wait()
+	return buf[:n], nil
+}
+
+var opencode2ListIDs = func(cwd string) ([]string, bool) {
+	out, err := runOpencode2(cwd, "session", "list")
+	if err != nil {
+		return nil, false
+	}
+	return dedupeOrdered(opencodeIDPattern.FindAllString(string(out), -1)), true
+}
+
+var opencode2SessionListJSON = func(cwd string) ([]opencodeListEntry, bool) {
+	out, err := runOpencode2(cwd, "session", "list", "--format", "json")
+	if err != nil {
+		return nil, false
+	}
+	var entries []opencodeListEntry
+	if err := json.Unmarshal(out, &entries); err != nil {
+		return nil, false
+	}
+	return entries, true
+}
+
+var opencode2SessionMeta = func(cwd, id string) (directory string, created, updated time.Time, ok bool) {
+	out, err := runOpencode2Head(cwd, "session", "export", id)
+	if err != nil {
+		return "", time.Time{}, time.Time{}, false
+	}
+	return parseOpencodeExport(out)
+}
+
+func captureOpencode2(cwd string, launchedAt time.Time, claimed map[string]bool) (string, bool) {
+	ids, ok := opencode2ListIDs(cwd)
+	if !ok {
+		return "", false
+	}
+	cutoff := launchedAt.Add(-clockSlack)
+	wantCwd := resolvePath(cwd)
+	var cands []candidate
+	for i, id := range ids {
+		if i >= opencodeScanLimit {
+			break
+		}
+		if claimed[id] {
+			continue
+		}
+		dir, created, _, ok := opencode2SessionMeta(cwd, id)
+		if !ok || resolvePath(dir) != wantCwd || created.Before(cutoff) {
+			continue
+		}
+		cands = append(cands, candidate{id: id, modTime: created})
+	}
+	return pickEarliest(cands)
+}
+
+
 // dedupeOrdered removes duplicates while keeping first-seen order.
 func dedupeOrdered(items []string) []string {
 	seen := make(map[string]bool, len(items))
@@ -672,15 +794,25 @@ func parseOpencodeExport(out []byte) (directory string, created, updated time.Ti
 	}
 	var info struct {
 		Directory string `json:"directory"`
-		Time      struct {
+		Location  struct {
+			Directory string `json:"directory"`
+		} `json:"location"`
+		Time struct {
 			Created int64 `json:"created"`
 			Updated int64 `json:"updated"`
 		} `json:"time"`
 	}
-	if err := json.Unmarshal(obj, &info); err != nil || info.Directory == "" {
+	if err := json.Unmarshal(obj, &info); err != nil {
 		return "", time.Time{}, time.Time{}, false
 	}
-	return info.Directory, time.UnixMilli(info.Time.Created), time.UnixMilli(info.Time.Updated), true
+	dir := info.Directory
+	if dir == "" {
+		dir = info.Location.Directory
+	}
+	if dir == "" {
+		return "", time.Time{}, time.Time{}, false
+	}
+	return dir, time.UnixMilli(info.Time.Created), time.UnixMilli(info.Time.Updated), true
 }
 
 // extractInfoObject returns the JSON object that follows the "info" key,

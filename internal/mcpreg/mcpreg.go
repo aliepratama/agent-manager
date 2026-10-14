@@ -45,6 +45,7 @@ var knownStyles = map[string]bool{
 	"claude":       true,
 	"codex":        true,
 	"opencode":     true,
+	"opencode2":    true,
 	"grok":         true,
 	"gemini":       true,
 	"hermes":       true,
@@ -92,7 +93,7 @@ func Apply(style, exe, hooksDir, command string, env map[string]string) (string,
 			command += " -c " + tmux.ShellQuote(override)
 		}
 		return command, nil
-	case "opencode":
+	case "opencode", "opencode2":
 		path, err := writeConfig(hooksDir, "mcp-opencode.json", opencodeConfig(exe))
 		if err != nil {
 			return "", err

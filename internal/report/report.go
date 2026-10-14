@@ -318,6 +318,7 @@ func toolLabel(toolName string) string {
 		"claude":       "Claude Code",
 		"codex":        "Codex",
 		"opencode":     "OpenCode",
+		"opencode2":    "OpenCode 2",
 		"grok":         "Grok Build",
 		"gemini":       "Gemini CLI",
 		"antigravity":  "Antigravity CLI",

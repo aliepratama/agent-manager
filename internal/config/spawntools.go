@@ -8,7 +8,7 @@ import (
 // toolDisplayOrder fixes the order tools appear in when creating a session and
 // when cycling the quick-spawn tool. Tools outside this list follow, sorted
 // alphabetically.
-var toolDisplayOrder = []string{"claude", "opencode", "codex", "grok", "gemini", "pi"}
+var toolDisplayOrder = []string{"claude", "opencode", "opencode2", "codex", "grok", "gemini", "pi"}
 
 // AgentToolNames is every configured agent CLI in picker order. The shell
 // tool is not a CLI to spawn agents with, so it is left out.

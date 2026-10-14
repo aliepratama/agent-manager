@@ -51,3 +51,52 @@ func readOpencode(ctx context.Context, command, dir string) (Catalog, error) {
 	sort.Slice(cat.Models, func(i, j int) bool { return cat.Models[i].ID < cat.Models[j].ID })
 	return cat, nil
 }
+
+func readOpencode2(ctx context.Context, command, dir string) (Catalog, error) {
+	password := secret()
+	proc, err := start(command, dir, true, "OPENCODE_SERVER_PASSWORD="+password)
+	if err != nil {
+		return Catalog{}, err
+	}
+	defer proc.stop()
+	address, err := serverAddress(ctx, proc, opencodeListening)
+	if err != nil {
+		return Catalog{}, err
+	}
+	auth := func(request *http.Request) { request.SetBasicAuth("opencode", password) }
+	var modelResp struct {
+		Data []struct {
+			ProviderID string `json:"providerID"`
+			ModelID    string `json:"modelID"`
+			Name       string `json:"name"`
+		} `json:"data"`
+	}
+	if err := getJSON(ctx, address+"/api/model", auth, &modelResp); err != nil {
+		return Catalog{}, err
+	}
+	var configList []struct {
+		Info struct {
+			Model struct {
+				ProviderID string `json:"providerID"`
+				Model      string `json:"model"`
+			} `json:"model"`
+		} `json:"info"`
+	}
+	defaultModel := ""
+	if err := getJSON(ctx, address+"/api/config", auth, &configList); err == nil {
+		for _, c := range configList {
+			if c.Info.Model.ProviderID != "" && c.Info.Model.Model != "" {
+				defaultModel = c.Info.Model.ProviderID + "/" + c.Info.Model.Model
+				break
+			}
+		}
+	}
+	var cat Catalog
+	for _, m := range modelResp.Data {
+		id := m.ProviderID + "/" + m.ModelID
+		cat.Models = append(cat.Models, Model{ID: id, Label: m.Name, Default: id == defaultModel})
+	}
+	sort.Slice(cat.Models, func(i, j int) bool { return cat.Models[i].ID < cat.Models[j].ID })
+	return cat, nil
+}
+
